@@ -1,0 +1,43 @@
+Modified MIT License with Attribution and No-Rebranding Restrictions
+Copyright (c) 2026 ItzMrNeJ1stFun (CTX3 Project)
+
+Permission is hereby granted, free of charge, to any person obtaining a copy
+of this software and associated documentation files (the "Software"), to deal
+in the Software without restriction, including without limitation the rights
+to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+copies of the Software, and to permit persons to whom the Software is
+furnished to do so, subject to the following conditions:
+
+1. The above copyright notice and this permission notice shall be included in
+   all copies or substantial portions of the Software.
+
+2. ATTRIBUTION. Any project (open-source or proprietary) that uses the
+   Software must retain the following in an accessible location such as
+   documentation, about box, credits screen, or README:
+   
+       "This software uses the CTX3 HWID Parser (ctx3-hwid-parser) by ItzMrNeJ1stFun.
+        https://github.com/ItzMrNeJ1stFun/ctx3-hwid-parser"
+
+3. NO REBRANDING. The Software may not be distributed under a different
+   name, title, or brand. You may not claim authorship of the original
+   Software. Forks that substantially modify the Software may use a
+   different name only if they clearly state "based on CTX3 HWID Parser
+   (ctx3-hwid-parser) by ItzMrNeJ1stFun" and link to the original repository.
+
+4. NO REMOVAL OF NOTICES. The SPDX-License-Identifier header, copyright
+   notices in source files, and the version identification constants
+   (version_major, version_minor, version_patch, version_string) must not
+   be removed or altered in any distributed copy of the Software.
+
+5. OPEN-SOURCE USAGE. If the Software is used in an open-source project
+   hosted on a public platform (e.g. GitHub, GitLab, Bitbucket), the
+   project's repository must include a visible reference (in README,
+   NOTICE, or similar file) linking back to the original repository.
+
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+SOFTWARE.
