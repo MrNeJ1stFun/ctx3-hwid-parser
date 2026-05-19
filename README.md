@@ -286,5 +286,3 @@ For issues, questions, or feature requests, please open an issue on GitHub.
 <p align="center">
   <strong>Version 3.1.0</strong> • Last Updated: May 2026 • CTX3 Development Team
 </p>
-
-Да это написано нейронкой так как я не знаю что писать честно
