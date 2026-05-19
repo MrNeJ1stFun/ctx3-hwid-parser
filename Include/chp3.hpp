@@ -450,7 +450,7 @@ namespace chp3 {
     };
 
     //===----------------------- SMBIOS table iterator -----------------------===//
-
+	// wtf 
     namespace detail {
 
         struct SmbiosEntry {
