@@ -1,11 +1,11 @@
 // SPDX-License-Identifier: MIT
 //===----------------------------------------------------------------------===//
 /// @file chp3.hpp
-/// @brief CTX3 HWID Parser - header-only библиотека v3.1
+/// @brief CTX3 HWID Parser - header-only библиотека v3.2
 /// @details Сбор уникальных идентификаторов оборудования Windows систем
 ///          с использованием современных C++20 паттернов
 /// @author ItzMrNeJ1stFun
-/// @version 3.1.0
+/// @version 3.2.0
 /// @requires C++20, MSVC/clang-cl, Windows 10+
 //===----------------------------------------------------------------------===//
 #pragma once
@@ -89,12 +89,12 @@
 namespace chp3 {
 
     inline constexpr std::uint32_t version_major = 3;
-    inline constexpr std::uint32_t version_minor = 1;
+    inline constexpr std::uint32_t version_minor = 2;
     inline constexpr std::uint32_t version_patch = 0;
-    
+
     /// @brief Возвращает версию библиотеки
     /// @return Строка формата "major.minor.patch"
-    [[nodiscard]] constexpr std::string_view version_string() noexcept { return "3.1.0"; }
+    [[nodiscard]] constexpr std::string_view version_string() noexcept { return "3.2.0"; }
 
     //===----------------------- Error / Result -----------------------------===//
 
@@ -179,8 +179,8 @@ namespace chp3 {
         using value_type = T;
         using error_type = Error;
 
-        Result(T v) : payload_(std::in_place_index<0>, std::move(v)) {}
-        Result(Error e) : payload_(std::in_place_index<1>, std::move(e)) {}
+        explicit Result(T v) : payload_(std::in_place_index<0>, std::move(v)) {}
+        explicit Result(Error e) : payload_(std::in_place_index<1>, std::move(e)) {}
 
         [[nodiscard]] bool has_value() const noexcept { return payload_.index() == 0; }
         [[nodiscard]] explicit operator bool() const noexcept { return has_value(); }
@@ -206,7 +206,7 @@ namespace chp3 {
     };
 
     template <class T>
-    [[nodiscard]] constexpr Result<T> fail(Error e) noexcept { return Result<T>{std::move(e)}; }
+    [[nodiscard]] inline Result<T> fail(Error e) { return Result<T>{std::move(e)}; }
 
     //===----------------------- Strong types --------------------------------===//
 
@@ -215,7 +215,7 @@ namespace chp3 {
     public:
         StrongString() = default;
         explicit StrongString(std::string v) noexcept : value_(std::move(v)) {}
-        explicit StrongString(const char* v) : value_(v ? v : "") {} // FIX: Disambiguate string literals
+        explicit StrongString(const char* v) : value_(v ? v : "") {}
         explicit StrongString(std::string_view v) : value_(v) {}
 
         [[nodiscard]] const std::string& str()   const noexcept { return value_; }
@@ -342,6 +342,22 @@ namespace chp3 {
         NTSTATUS          status_{ 0 };
     };
 
+    class BCryptHash {
+    public:
+        explicit BCryptHash(BCRYPT_ALG_HANDLE alg, PUCHAR pbHashObject, ULONG cbHashObject) noexcept {
+            status_ = ::BCryptCreateHash(alg, &handle_, pbHashObject, cbHashObject, nullptr, 0, 0);
+        }
+        ~BCryptHash() { if (handle_) ::BCryptDestroyHash(handle_); }
+        BCryptHash(const BCryptHash&) = delete;
+        BCryptHash& operator=(const BCryptHash&) = delete;
+        [[nodiscard]] BCRYPT_HASH_HANDLE get()    const noexcept { return handle_; }
+        [[nodiscard]] bool               ok()     const noexcept { return BCRYPT_SUCCESS(status_); }
+        [[nodiscard]] NTSTATUS           status() const noexcept { return status_; }
+    private:
+        BCRYPT_HASH_HANDLE handle_{ nullptr };
+        NTSTATUS           status_{ 0 };
+    };
+
     struct ComDeleter { void operator()(IUnknown* p) const noexcept { if (p) p->Release(); } };
     template <class T> using ComPtr = std::unique_ptr<T, ComDeleter>;
 
@@ -350,7 +366,7 @@ namespace chp3 {
     class Sha256 {
     public:
         [[nodiscard]] static Result<HashDigest>
-            hash(std::span<const std::byte> data) noexcept {
+            hash(std::span<const std::byte> data) {
             BCryptAlgorithm alg{ BCRYPT_SHA256_ALGORITHM };
             if (!alg.ok())
                 return fail<HashDigest>({ ErrorCode::api_failure,
@@ -373,32 +389,28 @@ namespace chp3 {
             std::vector<std::uint8_t> object(object_size);
             std::vector<std::uint8_t> digest(hash_size);
 
-            BCRYPT_HASH_HANDLE handle{};
-            if (auto s = ::BCryptCreateHash(alg.get(), &handle,
-                object.data(), object_size, nullptr, 0, 0);
-                !BCRYPT_SUCCESS(s))
+            BCryptHash hHash(alg.get(), object.data(), object_size);
+            if (!hHash.ok())
                 return fail<HashDigest>({ ErrorCode::api_failure,
-                    "BCryptCreateHash failed.", static_cast<std::uint32_t>(s) });
+                    "BCryptCreateHash failed.", static_cast<std::uint32_t>(hHash.status()) });
 
-            struct G { BCRYPT_HASH_HANDLE h; ~G() { if (h) ::BCryptDestroyHash(h); } } g{ handle };
-
-            if (auto s = ::BCryptHashData(handle,
+            if (auto s = ::BCryptHashData(hHash.get(),
                 const_cast<PUCHAR>(reinterpret_cast<const UCHAR*>(data.data())),
                 static_cast<ULONG>(data.size()), 0);
                 !BCRYPT_SUCCESS(s))
                 return fail<HashDigest>({ ErrorCode::api_failure,
                     "BCryptHashData failed.", static_cast<std::uint32_t>(s) });
 
-            if (auto s = ::BCryptFinishHash(handle, digest.data(),
+            if (auto s = ::BCryptFinishHash(hHash.get(), digest.data(),
                 static_cast<ULONG>(digest.size()), 0);
                 !BCRYPT_SUCCESS(s))
                 return fail<HashDigest>({ ErrorCode::api_failure,
                     "BCryptFinishHash failed.", static_cast<std::uint32_t>(s) });
 
-            return HashDigest{ to_hex(std::span<const std::uint8_t>{digest}) };
+            return Result<HashDigest>{ HashDigest{ to_hex(std::span<const std::uint8_t>{digest}) } };
         }
 
-        [[nodiscard]] static Result<HashDigest> hash(std::string_view sv) noexcept {
+        [[nodiscard]] static Result<HashDigest> hash(std::string_view sv) {
             return hash(std::as_bytes(std::span{ sv.data(), sv.size() }));
         }
     };
@@ -417,7 +429,7 @@ namespace chp3 {
     public:
         using output_type = HardwareFingerprint;
 
-        [[nodiscard]] static Result<HardwareFingerprint> probe() noexcept {
+        [[nodiscard]] static Result<HardwareFingerprint> probe() {
             std::array<int, 4> regs{};
             ::__cpuid(regs.data(), 0x80000000);
             if (static_cast<std::uint32_t>(regs[0]) < 0x80000004u)
@@ -443,14 +455,14 @@ namespace chp3 {
             ::__cpuidex(regs.data(), 7, 0);
             const auto ext = static_cast<std::uint32_t>(regs[1]);
 
-            return HardwareFingerprint{ std::format(
+            return Result<HardwareFingerprint>{ HardwareFingerprint{ std::format(
                 "{}|FMS={:X}.{:X}.{:X}|sig={:08X}|feat={:08X}|ext={:08X}",
-                brand_str, family, model, stepping, sig, features, ext) };
+                brand_str, family, model, stepping, sig, features, ext) } };
         }
     };
 
     //===----------------------- SMBIOS table iterator -----------------------===//
-	// wtf 
+
     namespace detail {
 
         struct SmbiosEntry {
@@ -469,7 +481,7 @@ namespace chp3 {
 
         class SmbiosTable {
         public:
-            [[nodiscard]] static Result<SmbiosTable> load() noexcept {
+            [[nodiscard]] static Result<SmbiosTable> load() {
                 constexpr DWORD kRSMB = 'RSMB';
                 const DWORD size = ::GetSystemFirmwareTable(kRSMB, 0, nullptr, 0);
                 if (size == 0)
@@ -482,7 +494,7 @@ namespace chp3 {
                 if (raw.size() <= 8)
                     return fail<SmbiosTable>({ ErrorCode::parse_error,
                         "SMBIOS table too small.", 0 });
-                return SmbiosTable{ std::move(raw) };
+                return Result<SmbiosTable>{ SmbiosTable{ std::move(raw) } };
             }
 
             template <class Fn>
@@ -547,7 +559,7 @@ namespace chp3 {
     public:
         using output_type = HardwareFingerprint;
 
-        [[nodiscard]] static Result<HardwareFingerprint> probe() noexcept {
+        [[nodiscard]] static Result<HardwareFingerprint> probe() {
             auto table = detail::SmbiosTable::load();
             if (!table) return fail<HardwareFingerprint>(table.error());
 
@@ -562,7 +574,7 @@ namespace chp3 {
             if (mfr.empty() && prod.empty() && ser.empty())
                 return fail<HardwareFingerprint>({ ErrorCode::no_data,
                     "SMBIOS Type-1 System Information record not found.", 0 });
-            return HardwareFingerprint{ std::format("{}|{}|{}", mfr, prod, ser) };
+            return Result<HardwareFingerprint>{ HardwareFingerprint{ std::format("{}|{}|{}", mfr, prod, ser) } };
         }
     };
 
@@ -574,7 +586,7 @@ namespace chp3 {
 
         DiskProbe() = default;
 
-        DiskProbe& open(std::uint32_t physical_index = 0) & noexcept {
+        DiskProbe& open(std::uint32_t physical_index = 0)& {
             const std::string path = std::format(R"(\\.\PhysicalDrive{})", physical_index);
             FileHandle h{ ::CreateFileA(path.c_str(), 0,
                                         FILE_SHARE_READ | FILE_SHARE_WRITE,
@@ -590,14 +602,14 @@ namespace chp3 {
             return *this;
         }
 
-        [[nodiscard]] DiskProbe&& open(std::uint32_t i = 0) && noexcept {
+        [[nodiscard]] DiskProbe&& open(std::uint32_t i = 0)&& {
             open(i); return std::move(*this);
         }
 
         [[nodiscard]] bool                          is_open()    const noexcept { return drive_.valid(); }
         [[nodiscard]] const std::optional<Error>& last_error() const noexcept { return last_error_; }
 
-        [[nodiscard]] Result<SerialNumber> read_serial() const noexcept {
+        [[nodiscard]] Result<SerialNumber> read_serial() const {
             if (!is_open())
                 return fail<SerialNumber>(last_error_.value_or(Error{
                     ErrorCode::device_unavailable,
@@ -634,11 +646,11 @@ namespace chp3 {
             if (serial.empty())
                 return fail<SerialNumber>({ ErrorCode::no_data,
                     "Drive descriptor returned an empty serial number.", 0 });
-            return SerialNumber{ product.empty() ? serial : product + "-" + serial };
+            return Result<SerialNumber>{ SerialNumber{ product.empty() ? serial : product + "-" + serial } };
         }
 
         [[nodiscard]] static Result<SerialNumber>
-            probe(std::uint32_t physical_index = 0) noexcept {
+            probe(std::uint32_t physical_index = 0) {
             return DiskProbe{}.open(physical_index).read_serial();
         }
 
@@ -655,7 +667,7 @@ namespace chp3 {
     public:
         using output_type = std::vector<MacAddress>;
 
-        [[nodiscard]] static Result<std::vector<MacAddress>> probe() noexcept {
+        [[nodiscard]] static Result<std::vector<MacAddress>> probe() {
             ULONG size = 0;
             const ULONG flags = GAA_FLAG_INCLUDE_ALL_INTERFACES;
             if (::GetAdaptersAddresses(AF_UNSPEC, flags, nullptr, nullptr, &size) != ERROR_BUFFER_OVERFLOW)
@@ -676,7 +688,7 @@ namespace chp3 {
             if (out.empty())
                 return fail<std::vector<MacAddress>>({ ErrorCode::no_data,
                     "No physical Ethernet/Wi-Fi adapters found.", 0 });
-            return out;
+            return Result<std::vector<MacAddress>>{ std::move(out) };
         }
     };
 
@@ -696,7 +708,7 @@ namespace chp3 {
             std::uint32_t luid_low{ 0 };
         };
 
-        [[nodiscard]] static Result<HardwareFingerprint> probe() noexcept {
+        [[nodiscard]] static Result<HardwareFingerprint> probe() {
             IDXGIFactory1* raw = nullptr;
             if (HRESULT hr = ::CreateDXGIFactory1(__uuidof(IDXGIFactory1),
                 reinterpret_cast<void**>(&raw));
@@ -721,10 +733,10 @@ namespace chp3 {
             if (acc.empty())
                 return fail<HardwareFingerprint>({ ErrorCode::no_data,
                     "No physical GPU adapters reported by DXGI.", 0 });
-            return HardwareFingerprint{ std::move(acc) };
+            return Result<HardwareFingerprint>{ HardwareFingerprint{ std::move(acc) } };
         }
 
-        [[nodiscard]] static Result<std::vector<Adapter>> details() noexcept {
+        [[nodiscard]] static Result<std::vector<Adapter>> details() {
             IDXGIFactory1* raw = nullptr;
             if (HRESULT hr = ::CreateDXGIFactory1(__uuidof(IDXGIFactory1),
                 reinterpret_cast<void**>(&raw));
@@ -759,7 +771,7 @@ namespace chp3 {
             if (out.empty())
                 return fail<std::vector<Adapter>>({ ErrorCode::no_data,
                     "No DXGI adapters returned details.", 0 });
-            return out;
+            return Result<std::vector<Adapter>>{ std::move(out) };
         }
     };
 
@@ -769,7 +781,7 @@ namespace chp3 {
     public:
         using output_type = HardwareFingerprint;
 
-        [[nodiscard]] static Result<HardwareFingerprint> probe() noexcept {
+        [[nodiscard]] static Result<HardwareFingerprint> probe() {
             static constexpr GUID kMonitorClass{
                 0x4d36e96e, 0xe325, 0x11ce,
                 {0xbf, 0xc1, 0x08, 0x00, 0x2b, 0xe1, 0x03, 0x18} };
@@ -816,7 +828,7 @@ namespace chp3 {
             if (acc.empty())
                 return fail<HardwareFingerprint>({ ErrorCode::no_data,
                     "No accessible monitor EDID data.", 0 });
-            return HardwareFingerprint{ std::move(acc) };
+            return Result<HardwareFingerprint>{ HardwareFingerprint{ std::move(acc) } };
         }
     };
 
@@ -826,14 +838,14 @@ namespace chp3 {
     public:
         using output_type = SerialNumber;
 
-        [[nodiscard]] static Result<SerialNumber> probe(char drive_letter = 'C') noexcept {
+        [[nodiscard]] static Result<SerialNumber> probe(char drive_letter = 'C') {
             const std::string root = std::format("{}:\\", drive_letter);
             DWORD serial = 0;
             if (!::GetVolumeInformationA(root.c_str(), nullptr, 0, &serial,
                 nullptr, nullptr, nullptr, 0))
                 return fail<SerialNumber>(make_win32_error(::GetLastError(),
                     std::format("GetVolumeInformation({})", root)));
-            return SerialNumber{ std::format("{:08X}", serial) };
+            return Result<SerialNumber>{ SerialNumber{ std::format("{:08X}", serial) } };
         }
     };
 
@@ -848,7 +860,7 @@ namespace chp3 {
         };
         using output_type = Identity;
 
-        [[nodiscard]] static Result<Identity> probe() noexcept {
+        [[nodiscard]] static Result<Identity> probe() {
             Identity id{
                 .product_id = read_product_id(),
                 .computer_name = read_computer_name(),
@@ -857,11 +869,11 @@ namespace chp3 {
             if (id.product_id.empty() && id.computer_name.empty() && id.user_sid.empty())
                 return fail<Identity>({ ErrorCode::no_data,
                     "Could not read any software identity values.", 0 });
-            return id;
+            return Result<Identity>{ std::move(id) };
         }
 
     private:
-        [[nodiscard]] static std::string read_product_id() noexcept {
+        [[nodiscard]] static std::string read_product_id() {
             HKEY raw{};
             if (::RegOpenKeyExA(HKEY_LOCAL_MACHINE,
                 R"(SOFTWARE\Microsoft\Windows NT\CurrentVersion)",
@@ -875,14 +887,14 @@ namespace chp3 {
             return std::string{ buf.data() };
         }
 
-        [[nodiscard]] static std::string read_computer_name() noexcept {
+        [[nodiscard]] static std::string read_computer_name() {
             std::array<char, MAX_COMPUTERNAME_LENGTH + 1> buf{};
             DWORD size = static_cast<DWORD>(buf.size());
             if (!::GetComputerNameA(buf.data(), &size)) return {};
             return std::string{ buf.data() };
         }
 
-        [[nodiscard]] static std::string read_user_sid() noexcept {
+        [[nodiscard]] static std::string read_user_sid() {
             std::array<char, UNLEN + 1> user{};
             DWORD ulen = static_cast<DWORD>(user.size());
             if (!::GetUserNameA(user.data(), &ulen)) return {};
@@ -913,7 +925,7 @@ namespace chp3 {
     public:
         using output_type = HardwareFingerprint;
 
-        [[nodiscard]] static Result<HardwareFingerprint> probe() noexcept {
+        [[nodiscard]] static Result<HardwareFingerprint> probe() {
             auto table = detail::SmbiosTable::load();
             if (!table) return fail<HardwareFingerprint>(table.error());
 
@@ -928,7 +940,7 @@ namespace chp3 {
             if (vendor.empty() && version.empty())
                 return fail<HardwareFingerprint>({ ErrorCode::no_data,
                     "SMBIOS Type-0 BIOS Information record not found.", 0 });
-            return HardwareFingerprint{ std::format("{}|{}|{}", vendor, version, release_date) };
+            return Result<HardwareFingerprint>{ HardwareFingerprint{ std::format("{}|{}|{}", vendor, version, release_date) } };
         }
     };
 
@@ -949,7 +961,7 @@ namespace chp3 {
         };
         using output_type = Info;
 
-        [[nodiscard]] static Result<Info> probe() noexcept {
+        [[nodiscard]] static Result<Info> probe() {
             TPM_DEVICE_INFO dev{};
             if (TBS_RESULT r = ::Tbsi_GetDeviceInfo(sizeof(dev), &dev); r != TBS_SUCCESS) {
                 return fail<Info>({ ErrorCode::device_unavailable,
@@ -958,11 +970,11 @@ namespace chp3 {
                                 static_cast<std::uint32_t>(r)),
                     static_cast<std::uint32_t>(r) });
             }
-            return Info{
+            return Result<Info>{ Info{
                 .struct_version = dev.structVersion,
                 .tpm_version = dev.tpmVersion,
                 .interface_type = dev.tpmInterfaceType,
-                .impl_revision = dev.tpmImpRevision };
+                .impl_revision = dev.tpmImpRevision } };
         }
     };
 
@@ -983,7 +995,7 @@ namespace chp3 {
 
         class WmiSession {
         public:
-            explicit WmiSession(const wchar_t* ns = L"ROOT\\CIMV2") noexcept {
+            explicit WmiSession(const wchar_t* ns = L"ROOT\\CIMV2") {
                 if (!ensure_com_initialized()) { hr_ = CO_E_NOTINITIALIZED; return; }
 
                 IWbemLocator* raw_loc = nullptr;
@@ -1021,7 +1033,7 @@ namespace chp3 {
             [[nodiscard]] HRESULT hr() const noexcept { return hr_; }
 
             template <class Fn>
-            [[nodiscard]] HRESULT enumerate(const wchar_t* wql, Fn&& fn) noexcept {
+            [[nodiscard]] HRESULT enumerate(const wchar_t* wql, Fn&& fn) {
                 IEnumWbemClassObject* raw_enum = nullptr;
                 if (HRESULT h = svc_->ExecQuery(_bstr_t(L"WQL"), _bstr_t(wql),
                     WBEM_FLAG_FORWARD_ONLY | WBEM_FLAG_RETURN_IMMEDIATELY,
@@ -1073,7 +1085,7 @@ namespace chp3 {
     public:
         using output_type = HardwareFingerprint;
 
-        [[nodiscard]] static Result<HardwareFingerprint> probe() noexcept {
+        [[nodiscard]] static Result<HardwareFingerprint> probe() {
             detail::WmiSession ses;
             if (!ses.ok())
                 return fail<HardwareFingerprint>(make_hresult_error(ses.hr(),
@@ -1094,7 +1106,7 @@ namespace chp3 {
             if (mfr.empty() && prod.empty() && ser.empty())
                 return fail<HardwareFingerprint>({ ErrorCode::no_data,
                     "Win32_BaseBoard returned no usable rows.", 0 });
-            return HardwareFingerprint{ std::format("{}|{}|{}", mfr, prod, ser) };
+            return Result<HardwareFingerprint>{ HardwareFingerprint{ std::format("{}|{}|{}", mfr, prod, ser) } };
         }
     };
 
@@ -1104,7 +1116,7 @@ namespace chp3 {
     public:
         using output_type = SerialNumber;
 
-        [[nodiscard]] static Result<SerialNumber> probe() noexcept {
+        [[nodiscard]] static Result<SerialNumber> probe() {
             detail::WmiSession ses;
             if (!ses.ok())
                 return fail<SerialNumber>(make_hresult_error(ses.hr(),
@@ -1124,7 +1136,7 @@ namespace chp3 {
             if (serial.empty())
                 return fail<SerialNumber>({ ErrorCode::no_data,
                     "Win32_DiskDrive did not return a serial number.", 0 });
-            return SerialNumber{ model.empty() ? serial : model + "-" + serial };
+            return Result<SerialNumber>{ SerialNumber{ model.empty() ? serial : model + "-" + serial } };
         }
     };
 
@@ -1150,7 +1162,7 @@ namespace chp3 {
         };
         using output_type = Info;
 
-        [[nodiscard]] static Result<Info> probe() noexcept {
+        [[nodiscard]] static Result<Info> probe() {
             Info info;
 
             using rtl_get_version_t = NTSTATUS(WINAPI*)(PRTL_OSVERSIONINFOW);
@@ -1193,11 +1205,11 @@ namespace chp3 {
             if (info.major == 0 && info.product_name.empty())
                 return fail<Info>({ ErrorCode::no_data,
                     "Could not read OS version (RtlGetVersion + registry both failed).", 0 });
-            return info;
+            return Result<Info>{ std::move(info) };
         }
 
     private:
-        [[nodiscard]] static std::string read_str(HKEY k, const char* name) noexcept {
+        [[nodiscard]] static std::string read_str(HKEY k, const char* name) {
             std::array<char, 256> buf{};
             DWORD size = static_cast<DWORD>(buf.size()), type = 0;
             if (::RegQueryValueExA(k, name, nullptr, &type,
@@ -1224,7 +1236,7 @@ namespace chp3 {
         };
         using output_type = Info;
 
-        [[nodiscard]] static Result<Info> probe() noexcept {
+        [[nodiscard]] static Result<Info> probe() {
             HKEY raw{};
             const auto status = ::RegOpenKeyExA(HKEY_LOCAL_MACHINE,
                 R"(SOFTWARE\Microsoft\Windows NT\CurrentVersion)",
@@ -1249,7 +1261,7 @@ namespace chp3 {
                 std::strftime(buf.data(), buf.size(), "%Y-%m-%d %H:%M:%S UTC", &tm);
                 out.formatted = std::string{ buf.data() };
             }
-            return out;
+            return Result<Info>{ std::move(out) };
         }
     };
 
@@ -1323,7 +1335,7 @@ namespace chp3 {
         };
         using output_type = Info;
 
-        [[nodiscard]] static Result<Info> probe() noexcept {
+        [[nodiscard]] static Result<Info> probe() {
             struct CI_INFO { ULONG Length; ULONG CodeIntegrityOptions; };
             constexpr int kSystemCodeIntegrityInformation = 103;
 
@@ -1351,7 +1363,7 @@ namespace chp3 {
 
             Info info;
             info.flags = ci.CodeIntegrityOptions;
-            return info;
+            return Result<Info>{ std::move(info) };
         }
     };
 
@@ -1372,7 +1384,7 @@ namespace chp3 {
         };
         using output_type = Info;
 
-        [[nodiscard]] static Result<Info> probe() noexcept {
+        [[nodiscard]] static Result<Info> probe() {
             Info info;
 
             HKEY raw{};
@@ -1380,7 +1392,7 @@ namespace chp3 {
                 R"(SYSTEM\CurrentControlSet\Control\SecureBoot\State)",
                 0, KEY_READ, &raw);
             if (state == ERROR_FILE_NOT_FOUND) {
-                return info;
+                return Result<Info>{ std::move(info) };
             }
             if (state != ERROR_SUCCESS)
                 return fail<Info>(make_win32_error(static_cast<DWORD>(state),
@@ -1400,7 +1412,7 @@ namespace chp3 {
                 && type == REG_DWORD)
                 info.setup_mode = (value != 0);
 
-            return info;
+            return Result<Info>{ std::move(info) };
         }
     };
 
@@ -1423,7 +1435,7 @@ namespace chp3 {
         };
         using output_type = Info;
 
-        [[nodiscard]] static Result<Info> probe() noexcept {
+        [[nodiscard]] static Result<Info> probe() {
             DYNAMIC_TIME_ZONE_INFORMATION tzi{};
             const DWORD r = ::GetDynamicTimeZoneInformation(&tzi);
             if (r == TIME_ZONE_ID_INVALID)
@@ -1435,7 +1447,7 @@ namespace chp3 {
             out.daylight_name = detail::wide_to_utf8(tzi.DaylightName);
             out.key_name = detail::wide_to_utf8(tzi.TimeZoneKeyName);
             out.daylight_active = (r == TIME_ZONE_ID_DAYLIGHT);
-            return out;
+            return Result<Info>{ std::move(out) };
         }
     };
 
@@ -1458,7 +1470,7 @@ namespace chp3 {
         };
         using output_type = Info;
 
-        [[nodiscard]] static Result<Info> probe() noexcept {
+        [[nodiscard]] static Result<Info> probe() {
             std::array<HKL, 64> hkls{};
             const int n = ::GetKeyboardLayoutList(static_cast<int>(hkls.size()), hkls.data());
             if (n <= 0)
@@ -1471,7 +1483,7 @@ namespace chp3 {
                 out.klid_list.push_back(std::format("{:08X}", v));
                 out.language_ids.push_back(static_cast<std::uint16_t>(v & 0xFFFFu));
             }
-            return out;
+            return Result<Info>{ std::move(out) };
         }
     };
 
@@ -1481,7 +1493,7 @@ namespace chp3 {
     public:
         using output_type = std::vector<MacAddress>;
 
-        [[nodiscard]] static Result<std::vector<MacAddress>> probe() noexcept {
+        [[nodiscard]] static Result<std::vector<MacAddress>> probe() {
             detail::WmiSession ses;
             if (!ses.ok())
                 return fail<std::vector<MacAddress>>(make_hresult_error(ses.hr(),
@@ -1503,7 +1515,7 @@ namespace chp3 {
             if (out.empty())
                 return fail<std::vector<MacAddress>>({ ErrorCode::no_data,
                     "WMI returned no physical network adapters with a MAC.", 0 });
-            return out;
+            return Result<std::vector<MacAddress>>{ std::move(out) };
         }
     };
 
@@ -1523,7 +1535,7 @@ namespace chp3 {
         };
         using output_type = std::vector<Adapter>;
 
-        [[nodiscard]] static Result<std::vector<Adapter>> probe() noexcept {
+        [[nodiscard]] static Result<std::vector<Adapter>> probe() {
             HKEY raw{};
             const auto status = ::RegOpenKeyExA(HKEY_LOCAL_MACHINE,
                 R"(SYSTEM\CurrentControlSet\Control\Class\{4d36e972-e325-11ce-bfc1-08002be10318})",
@@ -1569,7 +1581,7 @@ namespace chp3 {
             if (out.empty())
                 return fail<std::vector<Adapter>>({ ErrorCode::no_data,
                     "No network adapter subkeys found in registry.", 0 });
-            return out;
+            return Result<std::vector<Adapter>>{ std::move(out) };
         }
 
     private:
@@ -1603,7 +1615,7 @@ namespace chp3 {
         };
         using output_type = Info;
 
-        [[nodiscard]] static Result<Info> probe(int drive_index = 0) noexcept {
+        [[nodiscard]] static Result<Info> probe(int drive_index = 0) {
             const std::string path = std::format(R"(\\.\PhysicalDrive{})", drive_index);
             FileHandle drive{ ::CreateFileA(path.c_str(), 0,
                 FILE_SHARE_READ | FILE_SHARE_WRITE, nullptr,
@@ -1666,7 +1678,7 @@ namespace chp3 {
                 return fail<Info>({ ErrorCode::no_data,
                     std::format("Drive {} is not NVMe or returned empty Identify.",
                                 drive_index), 0 });
-            return info;
+            return Result<Info>{ std::move(info) };
         }
 
     private:
@@ -1791,7 +1803,7 @@ namespace chp3 {
         };
         using output_type = Info;
 
-        [[nodiscard]] static Result<Info> probe(int drive_index = 0) noexcept {
+        [[nodiscard]] static Result<Info> probe(int drive_index = 0) {
             const std::string path = std::format(R"(\\.\PhysicalDrive{})", drive_index);
             FileHandle drive{ ::CreateFileA(path.c_str(),
                 GENERIC_READ | GENERIC_WRITE,
@@ -1801,7 +1813,7 @@ namespace chp3 {
                 return fail<Info>(make_win32_error(::GetLastError(),
                     std::format("opening physical drive {} for SMART query", drive_index)));
 
-            struct ReqBuf {
+            struct Req_buf {
                 ATA_PASS_THROUGH_EX hdr;
                 UCHAR               data[512];
             } req{};
@@ -1809,7 +1821,7 @@ namespace chp3 {
             req.hdr.AtaFlags = ATA_FLAGS_DATA_IN;
             req.hdr.DataTransferLength = sizeof(req.data);
             req.hdr.TimeOutValue = 5;
-            req.hdr.DataBufferOffset = offsetof(ReqBuf, data);
+            req.hdr.DataBufferOffset = offsetof(Req_buf, data);
             req.hdr.CurrentTaskFile[0] = 0xD0;
             req.hdr.CurrentTaskFile[1] = 0x01;
             req.hdr.CurrentTaskFile[2] = 0x00;
@@ -1854,7 +1866,7 @@ namespace chp3 {
                 return fail<Info>({ ErrorCode::no_data,
                     std::format("Drive {} returned no SMART attributes "
                                 "(NVMe or unsupported).", drive_index), 0 });
-            return info;
+            return Result<Info>{ std::move(info) };
         }
     };
 
@@ -1905,7 +1917,7 @@ namespace chp3 {
         };
         using output_type = Info;
 
-        [[nodiscard]] static Result<Info> probe() noexcept {
+        [[nodiscard]] static Result<Info> probe() {
             Info info;
             DeviceInfoSet dis{ ::SetupDiGetClassDevsA(
                 nullptr, "PCI", nullptr, DIGCF_PRESENT | DIGCF_ALLCLASSES) };
@@ -1953,7 +1965,7 @@ namespace chp3 {
                 [](const Device& a, const Device& b) {
                     return a.instance_id < b.instance_id;
                 });
-            return info;
+            return Result<Info>{ std::move(info) };
         }
     };
 
@@ -1993,7 +2005,7 @@ namespace chp3 {
         };
         using output_type = Info;
 
-        [[nodiscard]] static Result<Info> probe() noexcept {
+        [[nodiscard]] static Result<Info> probe() {
             Info info;
 
             DeviceInfoSet dis{ ::SetupDiGetClassDevsA(
@@ -2039,7 +2051,7 @@ namespace chp3 {
                 [](const Device& a, const Device& b) {
                     return a.instance_id < b.instance_id;
                 });
-            return info;
+            return Result<Info>{ std::move(info) };
         }
     };
 
@@ -2055,7 +2067,7 @@ namespace chp3 {
         };
         using output_type = std::vector<Entry>;
 
-        [[nodiscard]] static Result<std::vector<Entry>> probe() noexcept {
+        [[nodiscard]] static Result<std::vector<Entry>> probe() {
             std::vector<Entry> out;
             for (const char* enum_path :
                 { R"(SYSTEM\CurrentControlSet\Enum\SCSI)",
@@ -2069,7 +2081,7 @@ namespace chp3 {
                 return std::tie(a.source, a.device_key, a.instance_key)
                     < std::tie(b.source, b.device_key, b.instance_key);
                 });
-            return out;
+            return Result<std::vector<Entry>>{ std::move(out) };
         }
 
     private:
@@ -2117,7 +2129,7 @@ namespace chp3 {
         };
         using output_type = std::vector<Entry>;
 
-        [[nodiscard]] static Result<std::vector<Entry>> probe() noexcept {
+        [[nodiscard]] static Result<std::vector<Entry>> probe() {
             HKEY raw{};
             if (const auto e = ::RegOpenKeyExA(HKEY_LOCAL_MACHINE,
                 R"(SYSTEM\CurrentControlSet\Enum\DISPLAY)",
@@ -2152,7 +2164,7 @@ namespace chp3 {
                 return std::tie(a.monitor_id, a.instance_key)
                     < std::tie(b.monitor_id, b.instance_key);
                 });
-            return out;
+            return Result<std::vector<Entry>>{ std::move(out) };
         }
     };
 
@@ -2162,7 +2174,7 @@ namespace chp3 {
     public:
         using output_type = HardwareFingerprint;
 
-        [[nodiscard]] static Result<HardwareFingerprint> probe() noexcept {
+        [[nodiscard]] static Result<HardwareFingerprint> probe() {
             auto table = detail::SmbiosTable::load();
             if (!table) return fail<HardwareFingerprint>(table.error());
 
@@ -2194,7 +2206,7 @@ namespace chp3 {
             if (uuid.empty())
                 return fail<HardwareFingerprint>({ ErrorCode::no_data,
                     "SMBIOS System UUID is absent or unset.", 0 });
-            return HardwareFingerprint{ uuid };
+            return Result<HardwareFingerprint>{ HardwareFingerprint{ std::move(uuid) } };
         }
     };
 
@@ -2204,7 +2216,7 @@ namespace chp3 {
     public:
         using output_type = HardwareFingerprint;
 
-        [[nodiscard]] static Result<HardwareFingerprint> probe() noexcept {
+        [[nodiscard]] static Result<HardwareFingerprint> probe() {
             auto table = detail::SmbiosTable::load();
             if (!table) return fail<HardwareFingerprint>(table.error());
 
@@ -2222,8 +2234,8 @@ namespace chp3 {
             if (!found)
                 return fail<HardwareFingerprint>({ ErrorCode::no_data,
                     "SMBIOS Type-2 Baseboard record not found.", 0 });
-            return HardwareFingerprint{
-                std::format("{}|{}|{}|{}|{}", mfr, prod, ver, ser, asset) };
+            return Result<HardwareFingerprint>{ HardwareFingerprint{
+                std::format("{}|{}|{}|{}|{}", mfr, prod, ver, ser, asset) } };
         }
     };
 
@@ -2245,7 +2257,7 @@ namespace chp3 {
         };
         using output_type = Info;
 
-        [[nodiscard]] static Result<Info> probe() noexcept {
+        [[nodiscard]] static Result<Info> probe() {
             auto table = detail::SmbiosTable::load();
             if (!table) return fail<Info>(table.error());
 
@@ -2263,7 +2275,7 @@ namespace chp3 {
             if (!found)
                 return fail<Info>({ ErrorCode::no_data,
                     "SMBIOS Type-3 System Enclosure record not found.", 0 });
-            return info;
+            return Result<Info>{ std::move(info) };
         }
     };
 
@@ -2291,7 +2303,7 @@ namespace chp3 {
         };
         using output_type = std::vector<Module>;
 
-        [[nodiscard]] static Result<std::vector<Module>> probe() noexcept {
+        [[nodiscard]] static Result<std::vector<Module>> probe() {
             auto table = detail::SmbiosTable::load();
             if (!table) return fail<std::vector<Module>>(table.error());
 
@@ -2340,7 +2352,7 @@ namespace chp3 {
             if (out.empty())
                 return fail<std::vector<Module>>({ ErrorCode::no_data,
                     "No SMBIOS Type-17 Memory Device records found.", 0 });
-            return out;
+            return Result<std::vector<Module>>{ std::move(out) };
         }
     };
 
@@ -2363,7 +2375,7 @@ namespace chp3 {
         };
         using output_type = Info;
 
-        [[nodiscard]] static Result<Info> probe() noexcept {
+        [[nodiscard]] static Result<Info> probe() {
             detail::WmiSession ses{ L"ROOT\\WMI" };
             if (!ses.ok())
                 return fail<Info>(make_hresult_error(ses.hr(),
@@ -2395,7 +2407,7 @@ namespace chp3 {
             if (auto h = Sha256::hash(std::as_bytes(std::span{ bytes })); h)
                 info.sha256 = *h;
 
-            return info;
+            return Result<Info>{ std::move(info) };
         }
 
     private:
@@ -2477,7 +2489,7 @@ namespace chp3 {
         };
         using output_type = Info;
 
-        [[nodiscard]] static Result<Info> probe() noexcept {
+        [[nodiscard]] static Result<Info> probe() {
             DWORD needed = 0;
             if (!::EnumDeviceDrivers(nullptr, 0, &needed) || needed == 0)
                 return fail<Info>(make_win32_error(::GetLastError(),
@@ -2527,7 +2539,7 @@ namespace chp3 {
                 [](const Driver& a, const Driver& b) {
                     return a.base_name < b.base_name;
                 });
-            return info;
+            return Result<Info>{ std::move(info) };
         }
 
     private:
@@ -2667,7 +2679,7 @@ namespace chp3 {
 
     class HwidEngine {
     public:
-        [[nodiscard]] static Result<FullReport> collect() noexcept {
+        [[nodiscard]] static Result<FullReport> collect() {
             FullReport rep;
 
             if (auto r = CpuProbe::probe(); r) rep.hardware.cpu = *r;
@@ -2791,7 +2803,7 @@ namespace chp3 {
             if (auto h = Sha256::hash(mix); h) rep.full = *h;
             else return fail<FullReport>(h.error());
 
-            return rep;
+            return Result<FullReport>{ std::move(rep) };
         }
 
     private:
