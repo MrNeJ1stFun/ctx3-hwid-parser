@@ -1,12 +1,7 @@
 // SPDX-License-Identifier: MIT
 //===----------------------------------------------------------------------===//
-/// @file chp3.hpp
-/// @brief CTX3 HWID Parser - header-only библиотека v3.2
-/// @details Сбор уникальных идентификаторов оборудования Windows систем
-///          с использованием современных C++20 паттернов
-/// @author ItzMrNeJ1stFun
-/// @version 3.2.0
-/// @requires C++20, MSVC/clang-cl, Windows 10+
+// CTX3 HWID Parser v3.2.0 - Header-only C++20 library for Windows hardware fingerprinting
+// Author: ItzMrNeJ1stFun
 //===----------------------------------------------------------------------===//
 #pragma once
 #if (!defined(_MSVC_LANG) && __cplusplus < 202002L) || \
@@ -84,31 +79,25 @@
 #pragma comment(lib, "psapi.lib")
 #pragma comment(lib, "ws2_32.lib")
 
-/// @namespace chp3
-/// @brief Публичный API библиотеки CTX3 HWID Parser v3
 namespace chp3 {
 
     inline constexpr std::uint32_t version_major = 3;
     inline constexpr std::uint32_t version_minor = 2;
     inline constexpr std::uint32_t version_patch = 0;
 
-    /// @brief Возвращает версию библиотеки
-    /// @return Строка формата "major.minor.patch"
     [[nodiscard]] constexpr std::string_view version_string() noexcept { return "3.2.0"; }
 
     //===----------------------- Error / Result -----------------------------===//
 
-    /// @brief Категории ошибок для всех зондов
-    /// @details Используется для классификации ошибок без исключений
     enum class ErrorCode : std::uint32_t {
-        ok = 0,                 ///< Успешное выполнение
-        access_denied,          ///< Отказано в доступе (нужны права администратора)
-        not_supported,          ///< Операция не поддерживается
-        device_unavailable,     ///< Устройство недоступно
-        parse_error,            ///< Ошибка парсинга данных
-        api_failure,            ///< Ошибка Windows API
-        no_data,                ///< Данные отсутствуют
-        internal_error          ///< Внутренняя ошибка библиотеки
+        ok = 0,
+        access_denied,
+        not_supported,
+        device_unavailable,
+        parse_error,
+        api_failure,
+        no_data,
+        internal_error
     };
 
     [[nodiscard]] constexpr std::string_view to_string(ErrorCode c) noexcept {
@@ -173,6 +162,7 @@ namespace chp3 {
                 static_cast<std::uint32_t>(hr) };
     }
 
+    // Result<T> - Rust-style error handling without exceptions
     template <class T>
     class [[nodiscard]] Result {
     public:

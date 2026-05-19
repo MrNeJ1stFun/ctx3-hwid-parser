@@ -1,12 +1,7 @@
 // SPDX-License-Identifier: MIT
 //===----------------------------------------------------------------------===//
-/// @file main.cpp
-/// @brief Демонстрационная программа для библиотеки chp3 HWID Parser
-/// @details Собирает уникальные идентификаторы оборудования Windows системы
-///          и генерирует криптографические хеши для идентификации компьютера
-/// @author ItzMrNeJ1stFun
-/// @version 3.2.0
-/// @date 2024
+// CTX3 HWID Parser v3.2.0 - Demonstration program
+// Author: ItzMrNeJ1stFun
 //===----------------------------------------------------------------------===//
 
 #include "../Include/chp3.hpp"
@@ -17,7 +12,7 @@
 
 namespace {
 
-    /// @brief C++20 совместимый полифилл для std::println (из C++23)
+    // C++20-compatible polyfill for std::println (from C++23)
     template<typename... Args>
     void println(std::string_view fmt, Args&&... args) {
         std::cout << std::vformat(fmt, std::make_format_args(args...)) << '\n';
@@ -27,8 +22,6 @@ namespace {
         std::cout << '\n';
     }
 
-    /// @brief Выводит заголовок секции в консоль
-    /// @param title Название секции
     void print_section(std::string_view title) {
         println("");
         println("==================================================");
@@ -36,19 +29,12 @@ namespace {
         println("==================================================");
     }
 
-    /// @brief Выводит опциональное значение или "<unavailable>"
-    /// @tparam T Тип значения (должен иметь метод str())
-    /// @param label Метка для вывода
-    /// @param v Опциональное значение
     template <class T>
     void print_optional(std::string_view label, const std::optional<T>& v) {
         if (v) println("  {:<14}: {}", label, v->str());
         else   println("  {:<14}: <unavailable>", label);
     }
 
-    /// @brief Выводит список некритичных ошибок
-    /// @param label Название категории ошибок
-    /// @param errs Список ошибок
     void print_errors(std::string_view label, std::span<const chp3::Error> errs) {
         if (errs.empty()) return;
         println("");
@@ -58,17 +44,12 @@ namespace {
 
 }  // namespace
 
-/// @brief Точка входа в программу
-/// @return 0 при успешном выполнении, 1 при критической ошибке
 int main() {
     println("chp3 HWID parser v{}", chp3::version_string());
 
-    // ========================================================================
-    // ИНДИВИДУАЛЬНЫЕ ПРОБЫ - демонстрация работы каждого зонда отдельно
-    // ========================================================================
-
     print_section("INDIVIDUAL PROBES");
 
+    // CPU identification via CPUID instruction
     if (auto r = chp3::CpuProbe::probe(); r)
         println("  CPU            : {}", r->str());
     else
@@ -115,7 +96,7 @@ int main() {
         println("  Memory modules : ERR  {}", r.error().to_string());
     }
 
-    // Method chaining demo: DiskProbe{}.open(0).read_serial()
+    // Method chaining: DiskProbe{}.open(0).read_serial()
     if (auto r = chp3::DiskProbe{}.open(0).read_serial(); r)
         println("  Disk #0 serial : {}", r->str());
     else
@@ -192,8 +173,7 @@ int main() {
     else
         println("  Keyboards      : ERR  {}", r.error().to_string());
 
-    // Поиск NVMe дисков: перебираем PhysicalDrive0..9
-    // Необходимо т.к. NVMe может быть на любом индексе
+    // Scan PhysicalDrive0..9 for NVMe
     bool found_nvme = false;
     for (int i = 0; i < 10 && !found_nvme; ++i) {
         if (auto r = chp3::NvmeProbe::probe(i); r) {
@@ -212,6 +192,7 @@ int main() {
         println("  WMI MACs       : ERR  {}", r.error().to_string());
     }
 
+    // Registry adapters - detects MAC spoofing via NetworkAddress override
     if (auto r = chp3::NetworkRegistryProbe::probe(); r) {
         println("  Registry NICs  :");
         for (const auto& a : *r) {
@@ -228,6 +209,7 @@ int main() {
 
     print_section("TIER 2 PROBES");
 
+    // SMART requires admin privileges
     if (auto r = chp3::HddSmartProbe::probe(0); r) {
         println("  HDD SMART #0   : {}", r->to_summary());
         for (const auto& a : r->attributes)
@@ -291,6 +273,7 @@ int main() {
     else
         println("  SMBIOS (WMI)   : ERR  {}", r.error().to_string());
 
+    // Driver signature verification - BYOVD detection
     if (auto r = chp3::InstalledDriversProbe::probe(); r) {
         println("  Drivers        : {}", r->to_summary());
         std::size_t bad = 0;
@@ -321,10 +304,6 @@ int main() {
     else
         println("  Secure Boot    : ERR  {}", r.error().to_string());
 
-    // ========================================================================
-    // АГРЕГИРОВАННЫЙ ОТЧЁТ - сбор всех данных и генерация HWID хешей
-    // ========================================================================
-
     print_section("AGGREGATED HWID");
 
     const auto report = chp3::HwidEngine::collect();
@@ -334,6 +313,7 @@ int main() {
     }
     const auto& rep = *report;
 
+    // Hardware fingerprint components
     print_optional("CPU", rep.hardware.cpu);
     print_optional("Motherboard", rep.hardware.motherboard);
     print_optional("Baseboard", rep.hardware.baseboard);
@@ -367,6 +347,8 @@ int main() {
         println("  {:<14}:", "MAC");
         for (const auto& m : rep.hardware.macs) println("                  - {}", m.str());
     }
+
+    // Cross-validation sources
     if (!rep.hardware.macs_wmi.empty()) {
         println("  {:<14}:", "MAC (WMI)");
         for (const auto& m : rep.hardware.macs_wmi) println("                  - {}", m.str());
@@ -384,6 +366,8 @@ int main() {
     if (rep.hardware.mac_spoof_suspected())
         println("  {:<14}: {}", "!! anti-spoof",
             "MAC sources disagree OR registry override present");
+
+    // Tier 2 correlation data
     if (rep.hardware.hdd_smart)
         println("  {:<14}: {}", "HDD SMART", rep.hardware.hdd_smart->to_summary());
     if (rep.hardware.pci)
@@ -411,6 +395,8 @@ int main() {
     if (rep.hardware.unsigned_driver_count() > 0)
         println("  {:<14}: {} unsigned kernel module(s) loaded",
             "!! BYOVD?", rep.hardware.unsigned_driver_count());
+
+    // Software fingerprint components
     print_optional("Volume", rep.software.volume);
     if (rep.software.identity) {
         println("  {:<14}: {}", "ProductId", rep.software.identity->product_id);
@@ -426,6 +412,7 @@ int main() {
     if (rep.software.keyboards)
         println("  {:<14}: {}", "Keyboards", rep.software.keyboards->to_fingerprint());
 
+    // Security status
     println("");
     println("  -- Security --");
     if (rep.security.code_integrity)
@@ -440,6 +427,7 @@ int main() {
         println("  {:<14}: {}", "!! verdict",
             "environment compromised (testsign / debug / CI off)");
 
+    // SHA-256 HWID hashes
     println("");
     println("  Hardware HWID  : {}", rep.hardware.combined.str());
     println("  Software HWID  : {}", rep.software.combined.str());

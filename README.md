@@ -1,43 +1,30 @@
 <p align="center">
-  <img src="https://img.shields.io/badge/version-3.1.0-blue.svg" alt="version"/>
+  <img src="https://img.shields.io/badge/version-3.2.0-blue.svg" alt="version"/>
   <img src="https://img.shields.io/badge/C++-20-blue.svg" alt="C++20"/>
   <img src="https://img.shields.io/badge/platform-Windows-0078D4.svg" alt="platform"/>
   <img src="https://img.shields.io/badge/compiler-MSVC%20%7C%20clang--cl-orange.svg" alt="compiler"/>
   <img src="https://img.shields.io/badge/license-Modified%20MIT-green.svg" alt="license"/>
 </p>
 
-<h1 align="center">CTX3 HWID Parser & Environment Integrity Engine</h1>
+# CTX3 HWID Parser
 
-<p align="center">
-  <strong>A modern, header-only C++20 engine for hardware fingerprinting, cross-validation, and anti-tamper detection on Windows.</strong>
-</p>
+Header-only C++20 library for Windows hardware fingerprinting with cross-validation and spoof detection.
 
----
+## Overview
 
-## 📋 Overview
+Collects hardware identifiers from multiple sources (IOCTL, WMI, SetupAPI, Registry, SMBIOS) and cross-validates them. Detects spoofing when one API returns different data than another.
 
-**ctx3-hwid-parser** goes beyond traditional hardware ID collection. While it provides robust, cryptographically hashed hardware fingerprints (SHA-256 via CNG/BCrypt), its core strength lies in **Environment Integrity**. 
+Returns `Result<T>` for all operations — no exceptions, no silent failures. All Win32/HRESULT errors are captured with context.
 
-In modern licensing and anti-cheat scenarios, a simple HWID string is trivially bypassed by kernel-level spoofers. CTX3 counters this by querying multiple OS subsystems (IOCTL, WMI, SetupAPI, Registry, SMBIOS) and cross-validating the results. If a spoofer hooks one API but forgets another, CTX3 detects the discrepancy and flags the environment.
+**Key features:**
+- Header-only, drop `chp3.hpp` into your project
+- C++20 concepts, `std::format`, `std::span`
+- RAII wrappers for all Windows resources
+- SHA-256 via BCrypt for fingerprint hashing
+- Cross-validation between WMI/SMBIOS/Registry/IOCTL
+- Detects MAC spoofing, unsigned drivers, test-signing mode
 
-Every probe returns a strongly-typed `Result<T>` — either the requested data or a structured `Error` with Win32/HRESULT context — ensuring failures are never silent.
-
-### 🎯 Design Principles
-
-| Principle | Detail |
-|-----------|--------|
-| **Header-Only** | Drop `chp3.hpp` into your project. No .cpp files, no CMake dependencies required. |
-| **Modern C++20** | Leverages Concepts, `std::format`, `std::span`, and structured bindings. |
-| **Structured Errors** | `Result<T>` with `ErrorCode`, human-readable messages, and native OS error codes. |
-| **RAII Everywhere** | `FileHandle`, `RegKey`, `DeviceInfoSet`, `ComPtr<T>` — zero resource leaks. |
-| **Probe Independence** | Each probe is a standalone class satisfying the `Probe` concept. Use one, use all, or compose your own. |
-| **Defence in Depth** | Cross-validation between WMI, SMBIOS, Registry, and IOCTL sources. Built-in spoof and integrity detection. |
-
----
-
-## 🔍 Feature Matrix
-
-### Core Hardware Probes (Identity)
+## Hardware Probes
 | Probe | Source | Output | Notes |
 |-------|--------|--------|-------|
 | `CpuProbe` | `__cpuid` / `__cpuidex` | `HardwareFingerprint` | Brand string + FMS + feature masks |
@@ -54,7 +41,7 @@ Every probe returns a strongly-typed `Result<T>` — either the requested data o
 | `TpmProbe` | TBS `Tbsi_GetDeviceInfo` | `TpmProbe::Info` | TPM version, interface type, implementation revision |
 | `VolumeProbe` | `GetVolumeInformation` | `SerialNumber` | Volume serial of any drive letter |
 
-### Tier 2: Correlation & Anti-Spoof Probes (Integrity)
+## Anti-Spoof Probes
 | Probe | Source | Output | Notes |
 |-------|--------|--------|-------|
 | `NvmeProbe` | `IOCTL_STORAGE_QUERY_PROPERTY` (NVMe) | `NvmeProbe::Info` | Identify Controller: serial, model, firmware, VID/SSVID |
@@ -68,7 +55,7 @@ Every probe returns a strongly-typed `Result<T>` — either the requested data o
 | `SmbiosWmiProbe` | WMI `MSSmBios_RawSMBiosTables` | `SmbiosWmiProbe::Info` | SHA-256 of raw SMBIOS blob for cross-validation |
 | `InstalledDriversProbe` | `EnumDeviceDrivers` + WinTrust | `InstalledDriversProbe::Info` | Loaded kernel modules with Authenticode verification |
 
-### Tier 3: OS & Security Probes (Environment)
+## OS & Security Probes
 | Probe | Source | Output | Notes |
 |-------|--------|--------|-------|
 | `WindowsIdentityProbe` | Registry + `GetUserName` + SID | `Identity` | Product ID, computer name, user SID |
@@ -79,18 +66,16 @@ Every probe returns a strongly-typed `Result<T>` — either the requested data o
 | `CodeIntegrityProbe` | `NtQuerySystemInformation` | `CodeIntegrityProbe::Info` | KMCI/UMCI/HVCI state, test-signing, debug mode |
 | `SecureBootProbe` | Registry `SecureBoot\State` | `SecureBootProbe::Info` | UEFI presence, Secure Boot & setup mode flags |
 
----
+## Usage
 
-## 🚀 Quick Start
-
-### 1. Include the header
+### Include
 ```cpp
 #include "chp3.hpp"
 // The header takes care of linking via #pragma comment(lib, ...) under MSVC
 ```
 
-### 2. Individual Probes
-Every probe returns `Result<T>`. Always check before use.
+### Single Probe
+Every probe returns `Result<T>`. Check before use.
 ```cpp
 if (auto r = chp3::CpuProbe::probe(); r) {
     std::cout << "CPU: " << r->str() << "\n";
@@ -99,8 +84,8 @@ if (auto r = chp3::CpuProbe::probe(); r) {
 }
 ```
 
-### 3. Aggregated Report & Trust Evaluation
-Use `HwidEngine::collect()` to run all probes, cross-validate, and generate SHA-256 digests.
+### Full Report
+`HwidEngine::collect()` runs all probes and cross-validates.
 ```cpp
 auto report = chp3::HwidEngine::collect();
 if (!report) {
@@ -108,12 +93,12 @@ if (!report) {
     return 1;
 }
 
-// Core HWID strings
+// Core fingerprints
 std::cout << "Hardware HWID: " << report->hardware.combined.str() << "\n";
 std::cout << "Software HWID: " << report->software.combined.str() << "\n";
 std::cout << "Full HWID:     " << report->full.str() << "\n";
 
-// Anti-spoof & Integrity checks built into the report
+// Integrity checks
 if (report->hardware.mac_spoof_suspected()) {
     std::cout << "WARNING: MAC address spoofing detected!\n";
 }
@@ -128,9 +113,7 @@ if (report->hardware.unsigned_driver_count() > 0) {
 }
 ```
 
----
-
-## ⚙️ Build Requirements
+## Build
 
 | Requirement | Minimum |
 |------------|---------|
@@ -139,11 +122,9 @@ if (report->hardware.unsigned_driver_count() > 0) {
 | **Platform** | Windows 10 1803+ (some probes require later builds) |
 | **Privileges** | Most probes work as a limited user; Disk SMART, NVMe queries, and Code Integrity require **Administrator** |
 
----
+## Error Handling
 
-## 🏗️ Architecture & Error Handling
-
-The library uses a custom `Result<T>` type (similar to Rust's `Result` or C++23's `std::expected`) to avoid exceptions on the hot path.
+`Result<T>` avoids exceptions. All errors include Win32/HRESULT codes.
 
 ```cpp
 enum class ErrorCode : std::uint32_t {
@@ -153,16 +134,14 @@ enum class ErrorCode : std::uint32_t {
 
 struct Error {
     ErrorCode     code;
-    std::string   message;      // Context-rich, e.g., "Access denied while opening \\.\PhysicalDrive0: run as Administrator."
-    std::uint32_t native_code;  // Win32 DWORD or HRESULT
+    std::string   message;      // e.g., "Access denied while opening \\.\PhysicalDrive0: run as Administrator."
+    std::uint32_t native_code;  // Win32 or HRESULT
 };
 ```
 
-All Windows resources are wrapped in move-only RAII guards (`FileHandle`, `RegKey`, `DeviceInfoSet`, `ComPtr<T>`, `BCryptAlgorithm`), guaranteeing zero leaks even on early returns or complex control flow.
+All Windows resources use RAII: `FileHandle`, `RegKey`, `DeviceInfoSet`, `ComPtr<T>`, `BCryptAlgorithm`.
 
----
-
-## 📁 Project Structure
+## Project Structure
 
 ```
 ctx3-hwid-parser/
@@ -175,114 +154,55 @@ ctx3-hwid-parser/
 └── LICENSE                   # Modified MIT License
 ```
 
----
+## Anti-Spoofing
 
-## 🛡️ Security Features
+**MAC Address**: Compares `GetAdaptersAddresses`, WMI, Registry. Detects `NetworkAddress` overrides.  
+**Disk**: Cross-checks IOCTL, WMI, Registry.  
+**SMBIOS**: SHA-256 of raw tables for tamper detection.
 
-### Anti-Spoofing Detection
-- **MAC Address Cross-Validation**: Compares `GetAdaptersAddresses`, WMI, and Registry sources
-- **Registry Override Detection**: Detects `NetworkAddress` registry key manipulation
-- **Multi-Source Disk Verification**: Cross-checks IOCTL, WMI, and Registry disk information
-- **SMBIOS Integrity**: SHA-256 hash of raw SMBIOS tables for tamper detection
+## Environment Integrity
 
-### Environment Integrity Checks
-- **Code Integrity Status**: KMCI, UMCI, HVCI, test-signing, debug mode flags
-- **Secure Boot Verification**: UEFI presence, Secure Boot enabled/disabled, Setup Mode
-- **Driver Signature Validation**: Authenticode verification of all loaded kernel drivers
-- **BYOVD Detection**: Flags unsigned kernel drivers (Bring Your Own Vulnerable Driver attacks)
+**Code Integrity**: KMCI, UMCI, HVCI, test-signing, debug mode.  
+**Secure Boot**: UEFI presence, Secure Boot state, Setup Mode.  
+**Drivers**: Authenticode verification, unsigned driver count (BYOVD detection).
 
-### Hardware Swap Detection
-- **Historical Registry Tracking**: Monitors `Enum\SCSI`, `Enum\USB`, `Enum\DISPLAY` for past devices
-- **PCI Device History**: Tracks all PCI devices ever connected to the system
-- **USB Device History**: Maintains records of USB, USBSTOR, and SWD devices
+## Hardware Swap Detection
 
----
+Tracks historical registry keys: `Enum\SCSI`, `Enum\USB`, `Enum\DISPLAY`, `Enum\PCI`.
 
-## 💡 Use Cases
-
-### 1. Software Licensing
-Generate stable hardware fingerprints that survive OS reinstalls but detect hardware changes:
+## Use Cases
+**Licensing**: Stable fingerprints across OS reinstalls.
 ```cpp
 auto report = chp3::HwidEngine::collect();
-std::string license_key = report->hardware.combined.str();  // Stable across OS reinstalls
+std::string license_key = report->hardware.combined.str();
 ```
 
-### 2. Anti-Cheat Systems
-Detect environment tampering and spoofer tools:
+**Anti-Cheat**: Detect spoofers and tampered environments.
 ```cpp
 if (report->hardware.mac_spoof_suspected() || 
     report->security.environment_compromised() ||
     report->hardware.unsigned_driver_count() > 50) {
-    ban_user("Environment integrity violation");
+    ban_user();
 }
 ```
 
-### 3. IT Asset Management
-Track hardware inventory and detect unauthorized changes:
+**Asset Management**: Track hardware inventory.
 ```cpp
-auto gpu_info = chp3::GpuProbe::probe();
-auto memory_modules = chp3::MemoryProbe::probe();
+auto gpu = chp3::GpuProbe::probe();
+auto memory = chp3::MemoryProbe::probe();
 auto disks = chp3::DiskRegistryProbe::probe();
-// Store in database for inventory tracking
 ```
 
----
+## License
 
-## 🗺️ Roadmap
+Modified MIT License with attribution requirements. See [LICENSE](./LICENSE).
 
-- [ ] **VM / Hypervisor Detection**: CPUID hypervisor bits, WMI manufacturer checks, specific VM driver enumeration
-- [ ] **Anti-Debug Checks**: `IsDebuggerPresent`, `CheckRemoteDebuggerPresent`, `NtQueryInformationProcess` (ProcessDebugPort)
-- [ ] **Memory Integrity**: Unbacked executable memory scanning (RWX detection), software breakpoint (INT 3) detection
-- [ ] **Vcpkg Integration**: Official port recipe for `vcpkg install ctx3-hwid-parser`
-- [ ] **Linux Support**: Port core probes to Linux using `/sys`, `/proc`, and `dmidecode`
-- [ ] **macOS Support**: Port core probes to macOS using IOKit and system_profiler
-
----
-
-## 📜 License
-
-This project is licensed under a **Modified MIT License with Attribution and No-Rebranding Restrictions**. See [LICENSE](./LICENSE) for the full text.
-
-**TL;DR:**
-- ✅ Free for personal and commercial use
-- ✅ Modify the code for your own use
-- ❌ Do **not** rebrand, rename, or republish this library as your own
-- ❌ Do **not** remove or alter the license, SPDX headers, or version constants
-- 📋 If used in an open-source project, include a reference to this repository
+- Free for personal and commercial use
+- Modify as needed
+- Do not rebrand or republish as your own
+- Do not remove SPDX headers or version constants
+- Open-source projects should reference this repository
 
 ---
 
-## 🤝 Contributing
-
-Contributions are welcome! Please:
-
-1. Fork the repository
-2. Create a feature branch (`git checkout -b feature/amazing-feature`)
-3. Commit your changes (`git commit -m 'Add amazing feature'`)
-4. Push to the branch (`git push origin feature/amazing-feature`)
-5. Open a Pull Request
-
----
-
-## 🙏 Acknowledgments
-
-- Uses Windows CNG/BCrypt for SHA-256 hashing
-- SMBIOS parsing inspired by dmidecode
-- SMART attribute decoding based on smartmontools
-- Driver signature verification via WinTrust API
-
----
-
-## 📞 Support
-
-For issues, questions, or feature requests, please open an issue on GitHub.
-
----
-
-<p align="center">
-  <sub>Built with C++20 • Designed for resilience • Powered by cross-validation</sub>
-</p>
-
-<p align="center">
-  <strong>Version 3.1.0</strong> • Last Updated: May 2026 • CTX3 Development Team
-</p>
+**Version 3.2.0** • CTX3 Development Team
