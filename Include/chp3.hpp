@@ -9,8 +9,6 @@
 /// @requires C++20, MSVC/clang-cl, Windows 10+
 //===----------------------------------------------------------------------===//
 #pragma once
-//test
-
 #if (!defined(_MSVC_LANG) && __cplusplus < 202002L) || \
     (defined(_MSVC_LANG)  && _MSVC_LANG  < 202002L)
 #  error "chp3.hpp requires C++20 (compile with /std:c++20 or newer)."
